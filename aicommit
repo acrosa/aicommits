@@ -3,8 +3,9 @@
 # Define the model constant
 MODEL="llama3.2"
 
-# Step 1: Fetch the last 10 commit messages (for style and conventions only)
-commit_history=$(git log -n 10 --pretty=format:"%s" | tr '\n' ' ')
+# Step 1: Fetch the last 10 commit messages and format them as a list
+commit_history=$(git log -n 10 --pretty=format:'"%s",' | sed '$ s/,$//')
+commit_history="[$commit_history]"
 
 # Step 2: Check for staged changes
 staged_diff=$(git diff --cached)
@@ -13,35 +14,58 @@ if [ -z "$staged_diff" ]; then
     exit 1
 fi
 
-# Step 3: Prepare the prompt for Ollama
-prompt="Here are examples of previous commit messages for style reference: $commit_history.
+# Step 3: Extract the style from the previous commit messages
+style_prompt="
 # Task:
-- Analyze the given diff and generate a concise commit message that describes the changes.
-- The commit message should be short, direct, and use action verbs (e.g., 'updated', 'refactored', 'added').
-- IMPORTANT: Output ONLY the commit message itself. No comments, headers, or additional formatting.
-Current diff: <diff>$staged_diff</diff>.
+Analyze the following list of commit messages and describe their common stylistic features in terms of tone, length, structure, and use of language:
+- $commit_history
+
+# Output:
+Provide a concise description of the style used in these commit messages. Be specific about length, tone (e.g., imperative), and any recurring patterns. Do NOT include any content from the commit messages themselves.
+"
+
+style_description=$(echo "$style_prompt" | ollama run "$MODEL")
+
+# Step 4: Prepare the prompt for generating the commit message using the extracted style
+prompt="
+# Context
+Based on the style description extracted from previous commit messages: $style_description
+
+# Instructions:
+1. Analyze the provided diff and generate a new commit message based solely on its content.
+2. Mimic the style characteristics described above (length, tone, structure) without using any content from the previous commit messages.
+3. Use action verbs (e.g., 'updated', 'refactored', 'added') and be concise in describing the changes.
+4. **Output ONLY the commit message itself.** Do not include any explanations, introductions, formatting, or extra text.
+
+# Current Diff:
+<diff>$staged_diff</diff>
+
 Commit message:"
 
 # Check if the user wants to see the full prompt
 if [ "$1" = "--show-prompt" ]; then
-    echo "Full prompt:"
+    echo "Full prompt for style extraction:"
+    echo "$style_prompt"
+    echo "Extracted Style Description:"
+    echo "$style_description"
+    echo "Full prompt for commit message generation:"
     echo "$prompt"
 fi
 
-# Step 4: Run Ollama with the prompt (using the defined model)
+# Step 5: Run Ollama with the second prompt (using the extracted style description)
 suggested_commit=$(echo "$prompt" | ollama run "$MODEL")
 
-# Step 5: Post-process the output to remove any unwanted text
-# Clean up the suggested commit message (remove leading/trailing whitespace, newlines, and common unwanted patterns)
-suggested_commit=$(echo "$suggested_commit" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed 's/^Commit message: //')
+# Step 6: Post-process the output to remove any unwanted text
+# Clean up the suggested commit message (remove leading/trailing whitespace and common unwanted patterns)
+suggested_commit=$(echo "$suggested_commit" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 
-# Step 6: Check if the suggested commit is empty or the Ollama command failed
+# Step 7: Check if the suggested commit is empty or the Ollama command failed
 if [ -z "$suggested_commit" ]; then
     echo "Error: No suggested commit message was generated. Aborting."
     exit 1
 fi
 
-# Step 7: Show the output and confirm
+# Step 8: Show the output and confirm
 echo "Suggested commit message: $suggested_commit"
 read -p "Do you want to use this commit message? (y/n/e): " user_choice
 
