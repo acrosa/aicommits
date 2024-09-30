@@ -18,8 +18,11 @@ Before you begin, ensure you have the following installed:
 
 ## Installation
 
-1. Download the `aicommit` script `curl -sL https://raw.githubusercontent.com/acrosa/aicommits/refs/heads/main/aicommit -o ~/Downloads/aicommit`
-2. Make it executable and move it to a directory in your PATH:
+1. Download the `aicommit` script
+ ```bash
+ curl -sL https://raw.githubusercontent.com/acrosa/aicommits/refs/heads/main/aicommit -o ~/Downloads/aicommit
+ ```
+4. Make it executable and move it to a directory in your PATH:
 ```bash
 chmod +x ~/Downloads/aicommit
 sudo mv ~/Downloads/aicommit /usr/local/bin/aicommit
