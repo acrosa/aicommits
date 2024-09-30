@@ -1,0 +1,92 @@
+#!/bin/bash
+
+# Define the model constant
+MODEL="llama3.2"
+
+# Step 1: Fetch the last 10 commit messages (for style and conventions only)
+commit_history=$(git log -n 10 --pretty=format:"%s" | tr '\n' ' ')
+
+# Step 2: Check for staged changes
+staged_diff=$(git diff --cached)
+if [ -z "$staged_diff" ]; then
+    echo "Error: No changes staged. Please use 'git add' to stage changes before committing."
+    exit 1
+fi
+
+# Step 3: Prepare the prompt for Ollama
+prompt="Here are examples of previous commit messages for style reference: $commit_history.
+# Task:
+- Analyze the given diff and generate a concise commit message that describes the changes.
+- The commit message should be short, direct, and use action verbs (e.g., 'updated', 'refactored', 'added').
+- IMPORTANT: Output ONLY the commit message itself. No comments, headers, or additional formatting.
+Current diff: <diff>$staged_diff</diff>.
+Commit message:"
+
+# Check if the user wants to see the full prompt
+if [ "$1" = "--show-prompt" ]; then
+    echo "Full prompt:"
+    echo "$prompt"
+fi
+
+# Step 4: Run Ollama with the prompt (using the defined model)
+suggested_commit=$(echo "$prompt" | ollama run "$MODEL")
+
+# Step 5: Post-process the output to remove any unwanted text
+# Clean up the suggested commit message (remove leading/trailing whitespace, newlines, and common unwanted patterns)
+suggested_commit=$(echo "$suggested_commit" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed 's/^Commit message: //')
+
+# Step 6: Check if the suggested commit is empty or the Ollama command failed
+if [ -z "$suggested_commit" ]; then
+    echo "Error: No suggested commit message was generated. Aborting."
+    exit 1
+fi
+
+# Step 7: Show the output and confirm
+echo "Suggested commit message: $suggested_commit"
+read -p "Do you want to use this commit message? (y/n/e): " user_choice
+
+case "$user_choice" in
+    y|Y)
+        # Confirm and commit
+        git commit -m "$suggested_commit"
+        ;;
+    n|N)
+        # Reject and exit
+        echo "Commit aborted."
+        exit 0
+        ;;
+    e|E)
+        # Allow user to edit the suggested commit message in a temporary file
+        temp_file=$(mktemp)
+        echo "$suggested_commit" > "$temp_file"
+        
+        # Open the file with vi
+        vi "$temp_file"
+        
+        # Check if the edited commit message is different from the original
+        if diff -q "$temp_file" <(echo "$suggested_commit") >/dev/null; then
+            echo "Aborting commit due to no changes made to the commit message."
+            rm "$temp_file"
+            exit 1
+        fi
+
+        # Read the edited content
+        edited_commit=$(cat "$temp_file")
+        
+        # Clean up the temporary file
+        rm "$temp_file"
+        
+        # Check if the edited commit message is empty
+        if [ -z "$edited_commit" ]; then
+            echo "Aborting commit due to empty commit message."
+            exit 1
+        fi
+        
+        # Commit with the edited message
+        git commit -m "$edited_commit"
+        ;;
+    *)
+        echo "Invalid choice, exiting."
+        exit 1
+        ;;
+esac
